@@ -1,0 +1,1 @@
+Extract summary, systems, symptoms and return JSON only.
