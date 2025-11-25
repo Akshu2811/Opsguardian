@@ -1,0 +1,21 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:opsguardian;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    driverClassName: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+
+  application:
+    name=Opsguardian:server:
+    port: 8080
+
+spring.h2.console.enabled: true
+spring.h2.console.path: /h2-console
