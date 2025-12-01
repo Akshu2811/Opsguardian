@@ -5,6 +5,7 @@ import com.opsguardian.backend.service.TicketService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -26,6 +27,18 @@ public class TicketController {
 
     @PostMapping
     public ResponseEntity<Ticket> create(@RequestBody Ticket ticket) {
+        // Defensive: ensure we never try to persist a Ticket with an explicit id
+        // (some clients may accidentally include 'id' or previous code paths may set it).
+        ticket.setId(null);
+
+        // Ensure createdAt and status defaults for new tickets
+        if (ticket.getCreatedAt() == null) {
+            ticket.setCreatedAt(Instant.now());
+        }
+        if (ticket.getStatus() == null) {
+            ticket.setStatus("OPEN");
+        }
+
         Ticket created = service.create(ticket);
         return ResponseEntity.status(201).body(created);
     }
@@ -63,4 +76,25 @@ public class TicketController {
         });
         return ResponseEntity.ok(Map.of("status", "assigned"));
     }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<Ticket> update(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> changes
+    ) {
+        String priority = (String) changes.get("priority");
+        String category = (String) changes.get("category");
+        String status   = (String) changes.get("status");
+
+        Ticket updated = service.updateFields(id, priority, category, status);
+
+        if (updated == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        return ResponseEntity.ok(updated);
+    }
+
+
 }
+

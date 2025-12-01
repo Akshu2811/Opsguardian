@@ -1,33 +1,71 @@
-HELP.md
-target/
-.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
+# OS
+.DS_Store
+Thumbs.db
 
-### STS ###
-.apt_generated
-.classpath
-.factorypath
-.project
-.settings
-.springBeans
-.sts4-cache
-
-### IntelliJ IDEA ###
-.idea
-*.iws
-*.iml
-*.ipr
-
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
-
-### VS Code ###
+# IDE / Editor
+.idea/
 .vscode/
+*.iml
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+__pypackages__/
+.venv/
+venv/
+ENV/
+env/
+pip-log.txt
+
+# Python virtual env
+opsguardian-agent/.venv/
+
+# Python environment & secrets
+opsguardian-agent/.env
+opsguardian-agent/sessions/
+opsguardian-agent/out/
+opsguardian-agent/*.sqlite
+opsguardian-agent/*.db
+opsguardian-agent/*.log
+
+# Node / web (if any)
+node_modules/
+
+# Java / Maven
+**/target/
+**/out/
+*.class
+*.war
+*.jar
+*.ear
+
+# Maven wrapper local files
+.mvn/wrapper/maven-wrapper.jar
+.mvn/wrapper/maven-wrapper.properties
+
+# Logs
+*.log
+
+# System files
+*.swp
+*~
+
+# JetBrains
+.idea/
+*.iml
+workspace.xml
+tasks.xml
+out/
+
+# dotenv / secrets
+*.env
+.env.local
+.env.*.local
+
+# OSGuardian-specific
+opsguardian-backend/target/
+opsguardian-agent/.venv/
+
+src/main/resources/application.yml

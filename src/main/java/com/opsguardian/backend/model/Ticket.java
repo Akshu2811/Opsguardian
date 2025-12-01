@@ -4,9 +4,6 @@ import jakarta.persistence.*;
 import java.time.Instant;
 import lombok.*;
 
-
-import java.time.Instant;
-
 @Entity
 @Table(name = "tickets")
 @Getter
@@ -25,12 +22,8 @@ public class Ticket {
     private String description;
 
     private String reporter;
-
-    private String priority; // P0, P1, P2, P3
-
-    private String category; // Database, Network, Application, Access, Security, Other
-
-    private String status; // OPEN, TRIAGED, ASSIGNED, RESOLVED
-
+    private String priority;
+    private String category;
+    private String status;
     private Instant createdAt = Instant.now();
 }
