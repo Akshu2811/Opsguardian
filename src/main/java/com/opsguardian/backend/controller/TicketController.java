@@ -6,8 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @RestController
 @RequestMapping("/api/tickets")
@@ -28,7 +27,6 @@ public class TicketController {
     @PostMapping
     public ResponseEntity<Ticket> create(@RequestBody Ticket ticket) {
         // Defensive: ensure we never try to persist a Ticket with an explicit id
-        // (some clients may accidentally include 'id' or previous code paths may set it).
         ticket.setId(null);
 
         // Ensure createdAt and status defaults for new tickets
@@ -50,12 +48,52 @@ public class TicketController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    // placeholder: add suggestions (agent -> store suggestions)
+    /**
+     * Accepts suggestions from the agent and persists them to the ticket.
+     *
+     * Accepts either:
+     *  - a JSON array: ["s1", "s2"]
+     *  - or an object: {"suggestions": ["s1","s2"], ...}
+     *
+     * Returns the updated Ticket in the response.
+     */
     @PostMapping("/{id}/suggestions")
-    public ResponseEntity<?> addSuggestions(@PathVariable Long id, @RequestBody Map<String, Object> suggestions) {
-        // For MVP, just log and return 200. Later persist suggestions table.
-        System.out.println("Suggestions for ticket " + id + ": " + suggestions);
-        return ResponseEntity.ok(Map.of("status", "ok"));
+    public ResponseEntity<?> addSuggestions(@PathVariable Long id, @RequestBody Object payload) {
+        List<String> suggestions = new ArrayList<>();
+
+        // payload can be ArrayList (when JSON array is posted) or LinkedHashMap (when object posted)
+        if (payload instanceof List) {
+            for (Object o : (List<?>) payload) {
+                if (o != null) suggestions.add(String.valueOf(o));
+            }
+        } else if (payload instanceof Map) {
+            Map<?, ?> map = (Map<?, ?>) payload;
+            Object maybeList = map.get("suggestions");
+            if (maybeList instanceof List) {
+                for (Object o : (List<?>) maybeList) {
+                    if (o != null) suggestions.add(String.valueOf(o));
+                }
+            } else {
+                // fallback: if map contains string values under different keys,
+                // try to collect them (defensive)
+                Object single = map.get("suggestion");
+                if (single != null) suggestions.add(String.valueOf(single));
+            }
+        } else {
+            // last-resort: string payload mapping — try to coerce
+            suggestions.add(String.valueOf(payload));
+        }
+
+        if (suggestions.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("status", "error", "reason", "no suggestions found in payload"));
+        }
+
+        Ticket updated = service.addSuggestions(id, suggestions);
+        if (updated == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        return ResponseEntity.ok(Map.of("status", "ok", "ticket", updated));
     }
 
     // placeholder: apply a suggestion (simulate)
@@ -94,7 +132,4 @@ public class TicketController {
 
         return ResponseEntity.ok(updated);
     }
-
-
 }
-

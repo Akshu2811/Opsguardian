@@ -1,225 +1,298 @@
-# **OpsGuardian – AI-Driven Incident Analysis & Suggestion Engine**
 
-OpsGuardian is an intelligent incident triage and suggestion system designed to support SRE, DevOps, and Operations teams.
-It automates the lifecycle of incident review, categorization, and resolution suggestion using:
+# **OpsGuardian – AI-Powered Incident Triage and Troubleshooting Assistant**
 
-* Spring Boot Backend for ticket management
+OpsGuardian is a **full-stack AI-driven incident analysis assistant** built using a **Spring Boot (MySQL) backend**, **Python multi-agent system**, and **Google ADK/Gemini** for intelligent incident classification and troubleshooting suggestions. It automates the earliest and slowest phase of operational workflows: *incident triage*.
 
-* Python Agent Layer for intelligent classification and recommendation
+OpsGuardian analyzes raw incident descriptions, assigns priority, classifies category, updates ticket status, and generates actionable remediation suggestions. When LLM quotas or network issues occur, the system intelligently falls back to deterministic heuristics to ensure uninterrupted operation.
 
-* ADK/Gemini LLM for generating high-quality troubleshooting suggestions
+---
 
-* Fallback heuristic engine to ensure reliability even when LLM quota is exceeded
+## **Key Features**
 
-OpsGuardian reduces manual effort, improves first-response quality, and accelerates root-cause identification.
+* **AI-powered classification** of category and priority
+* **Troubleshooting suggestions** generated via ADK/Gemini or heuristics
+* **Multi-agent architecture** (reader, classifier, suggester, router)
+* **Spring Boot + MySQL backend** with clean REST API
+* **Full automation of triage lifecycle**
+* **Resilient heuristics fallback** when LLM unavailable
+* **End-to-end test suite** included (`e2e_test.py`)
+* **Batch-processing agent** (`run_suggester.py`)
+* **Production-style design** suitable for real DevOps/SRE teams
 
+---
 
-### **Key Features**
+## **System Story**
 
-#### **✓ Intelligent Ticket Triaging****
+Modern operational teams face high volumes of incidents with repetitive triage workload. OpsGuardian automates the first-response stage of incident handling:
 
-Each new ticket is read by the agent, classified into priority (P0–P3) and a category using ADK/Gemini (or fallback rules).
+* Normalizes ticket text
+* Classifies severity (P0–P3)
+* Identifies category (Network, Database, Application, etc.)
+* Updates backend status
+* Generates structured troubleshooting steps
 
-#### **✓ Automated Suggestion Generation**
+This reduces triage time from minutes to seconds and ensures consistent, reliable classification even under load or quota limitations.
 
-For each ticket, OpsGuardian generates actionable suggestions such as likely root causes, next steps, and recommended checks.
+---
 
-#### **✓ Status Workflow**
+## **Architecture Overview**
 
-Tickets flow through the system automatically:
+### **Backend (Spring Boot + MySQL)**
 
-OPEN -> TRIAGED (after agent processes)
+* REST endpoints under `/api/tickets`
+* Stores **tickets** and **suggestions**
+* Default ticket status: **OPEN**
+* After agent processing: **TRIAGED** or **ASSIGNED**
+* Schema includes: *id, title, description, reporter, priority, category, status, createdAt, suggestions*
 
-#### **✓ End-to-End Integration**
+### **Python Agent System**
 
-* Backend stores ticket & suggestion data
+* **reader_agent.py** — text normalization
+* **adk_classifier.py** — priority + category (ADK or heuristic)
+* **adk_suggester.py** — troubleshooting suggestions
+* **router_agent.py** — orchestrates complete workflow
+* **run_suggester.py** — batch processor
+* **backend_client.py** — REST client
+* **e2e_test.py** — end-to-end smoke test
 
-* Agent pulls tickets, classifies, updates, and writes suggestions
+### **ADK/Gemini Intelligence**
 
-* ADK handles core LLM reasoning
+* LLM-based reasoning for classification + suggestions
+* On failure (429 quota), deterministic fallback ensures uninterrupted processing
 
-* Fallback logic ensures zero downtime for LLM quota errors
+---
 
-#### **✓ 100% Reproducible, Hackathon-Friendly Setup**
+## **Workflow Overview**
 
-Simple commands to run backend, agent, and tests.
+```
+Ticket → Stored in MySQL (status=OPEN)
+Agent → Reads → Normalizes
+Agent → Classifies (ADK or heuristic)
+Agent → Updates Ticket Status (TRIAGED / ASSIGNED)
+Agent → Generates Suggestions
+Agent → Stores Suggestions Back to Backend
+Engineer → Reviews and Acts
+```
 
-## **System Architecture**
+---
 
+# **Installation & Setup**
 
-1. ### **Backend (opsguardian-backend)**
+## **Prerequisites**
 
-* Spring Boot
+* Java 17+
+* Maven
+* Python 3.10+
+* MySQL Server
+* Google ADK/Gemini API access (optional but recommended)
 
-* MySQL
+---
 
-* REST API under /api/tickets
+# **1. Backend Setup (Spring Boot + MySQL)**
 
-* Entities: Ticket, Suggestion
-
-* Endpoints:
-
-     1. POST /api/tickets
-     2. GET /api/tickets
-     3. GET /api/tickets/{id}
-     4. PUT /api/tickets/{id}
-     5. POST /api/tickets/{id}/suggestions
-
-2. ### **Python Agent (opsguardian-agent)**
-
-    Components:
-
-* reader_agent.py – cleans & normalizes ticket text
-
-* adk_classifier.py – ADK-based category & priority classification
-
-* adk_suggester.py – ADK-based suggestion engine + fallback
-
-* router_agent.py – orchestrates classification + updates + suggestion writes
-
-* backend_client.py – REST client for interacting with backend
-
-* run_suggester.py – iterates through all OPEN tickets and triages them
-
-* e2e_test.py – complete end-to-end test
-
-3. ### **ADK/Gemini Integration**
-
-* Uses AdkLlmAgent
-
-* Generates:
-
-  * priority
-
-  * category
-
-  * suggestions (root causes, next steps, investigations)
-
-If Gemini quota is exceeded → fallback heuristic suggestions automatically applied.
-
-## **Data Flow**
-
-Backend creates ticket (status=OPEN)
-
-↓
-
-Python agent (run_suggester.py) fetches OPEN tickets
-
-↓
-
-Reader agent cleans text
-
-↓
-
-ADK classifier categorizes & assigns priority
-
-↓
-
-Backend ticket updated → status = TRIAGED
-
-↓
-
-ADK/Gemini suggestion OR fallback heuristic
-
-↓
-
-Suggestion saved to backend
-
-
-## **How to Run the Project**
-
-### 1️⃣ **Run MySQL**
-
-Make sure MySQL is running locally and your credentials are set.
-
-### 2️⃣ **Run the Spring Boot Backend**
-
-Navigate to the backend directory and run:
+## **Clone Repository**
 
 ```bash
-cd opsguardian-backend
+git clone <your-repo-url>
+cd OpsGuardian
+```
+
+## **Configure MySQL**
+
+In `src/main/resources/application.yml`:
+
+```
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/opsguardian
+    username: <your-user>
+    password: <your-password>
+```
+
+Ensure MySQL database exists:
+
+```sql
+CREATE DATABASE opsguardian;
+```
+
+## **Run Backend**
+
+```bash
 ./mvnw spring-boot:run
 ```
 
 Backend runs at:
-👉 http://localhost:8080
 
+```
+http://localhost:8080/api
+```
 
-### 3️⃣ **Run the Python Agent Layer**
+---
 
-Create virtual environment:
+# **2. Python Agent Setup**
 
 ```bash
 cd opsguardian-agent
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-```
+# Windows
+.venv\Scripts\Activate.ps1
+# macOS/Linux
+source .venv/bin/activate
 
-Install dependencies:
-
-```bash
 pip install -r requirements.txt
 ```
 
-Run the agent:
+## **Environment Variables**
+
+Create `.env`:
+
+```
+OPS_BACKEND_URL=http://localhost:8080/api
+PROCESS_OPEN_ONLY=true
+GOOGLE_API_KEY=<your-key>
+```
+
+`PROCESS_OPEN_ONLY`:
+
+* `true` → only process OPEN tickets
+* `false` → reprocess ALL tickets (useful after schema changes)
+
+---
+
+# **Running the Agent**
+
+## **Process Tickets**
 
 ```bash
 python run_suggester.py
 ```
-✓ **This will process all OPEN tickets**
 
-✓ **Update priority/category**
+This will:
 
-✓ **Mark as TRIAGED**
+* Fetch OPEN tickets
+* Normalize
+* Classify
+* Update backend
+* Generate suggestions
+* Store suggestions
 
-✓ **Insert suggestions**
+---
 
-### **Running End-to-End Test**
+# **3. End-to-End Testing**
 
-Navigate to the agent directory and run:
+Run:
 
 ```bash
-cd opsguardian-agent
 python e2e_test.py
 ```
 
-This test:
+This script will:
 
-* **Creates a ticket in backend**
+* Create a new ticket
+* Wait for agent to process it
+* Verify updated fields + suggestions
 
-* **Verifies it via GET**
+If the agent is not running while executing the test, start it separately using:
 
-* **Confirms the system is functioning end-to-end**
-
-## **API Endpoints Summary**
-
-```table
-| Method | Endpoint                        | Description                |
-| ------ | ------------------------------- | -------------------------- |
-| POST   | `/api/tickets`                  | Create a new ticket        |
-| GET    | `/api/tickets`                  | List all tickets           |
-| GET    | `/api/tickets/{id}`             | Fetch ticket by ID         |
-| PUT    | `/api/tickets/{id}`             | Update ticket fields       |
-| POST   | `/api/tickets/{id}/suggestions` | Add suggestions for ticket |
+```bash
+python run_suggester.py
 ```
 
-## **Sample Ticket SQL (data.sql)**
+---
 
-```sql
-INSERT INTO ticket (title, description, status, reporter, created_at)
-VALUES
-    ('High CPU usage', 'CPU spikes to 97% during peak hours.', 'OPEN', 'john@company.com', '2025-11-28 10:00:00');
+# **API Endpoints**
 
+## **Tickets**
+
+* `POST /api/tickets`
+* `GET /api/tickets`
+* `GET /api/tickets/{id}`
+* `PUT /api/tickets/{id}`
+* `POST /api/tickets/{id}/suggestions`
+* `POST /api/tickets/{id}/assign`
+
+### **Example Ticket Creation**
+
+```bash
+curl -X POST http://localhost:8080/api/tickets \
+  -H "Content-Type: application/json" \
+  -d "{\"title\":\"Checkout Timeout\",\"description\":\"Users facing delays\",\"reporter\":\"ops@example.com\"}"
 ```
 
-## **Why OpsGuardian?**
+---
 
-* **Automates triage work SRE teams spend hours on**
+# **Folder Structure**
 
-* **Ensures consistent and structured ticket classification**
+```
+OpsGuardian/
+│
+├── opsguardian-agent/
+│   ├── agents/
+│   │   ├── reader_agent.py
+│   │   ├── router_agent.py
+│   │   ├── adk_classifier.py
+│   │   ├── adk_suggester.py
+│   │   ├── adk_utils.py
+│   │   └── adk_runtime.py
+│   ├── tools/backend_client.py
+│   ├── run_suggester.py
+│   ├── e2e_test.py
+│   └── requirements.txt
+│
+└── backend/
+    ├── src/main/java/... (Spring Boot)
+    ├── src/main/resources/application.yml
+    └── pom.xml
+```
 
-* **Uses LLM-powered reasoning + fallback logic for reliability**
+---
 
-* **Fully modular: backend, agent, and LLM components are cleanly separated**
+# **Observability & Logging**
 
-* **Perfect for hackathons, demonstrations, and real-world workflow**
+OpsGuardian includes robust logging:
+
+* ADK calls
+* Fallback triggers
+* Ticket update details
+* Suggestion storage
+* Per-ticket and batch run metrics
+
+`run_suggester.py` prints:
+
+* **processed count**
+* **fallback usage**
+* **average processing time**
+
+---
+
+# **Troubleshooting**
+
+*Suggestions not visible?*
+
+* Ensure agent is running
+* Ensure backend is reachable
+* Check logs for ADK quota errors
+* Toggle `PROCESS_OPEN_ONLY=false` and re-run agent
+
+*Agent failing with ADK errors?*
+
+* Provide a valid `GOOGLE_API_KEY`
+* Free tier may hit 429 limits
+* Fallback will still classify & suggest
+
+---
+
+# **Future Enhancements**
+
+* Dedicated Suggestion table
+* Feedback loops for ranking suggestions
+* Vector embeddings for similar-incident search
+* Multi-agent parallelization
+* UI dashboard for triage review
+* Automatic team assignment
+
+---
+
+
+
+

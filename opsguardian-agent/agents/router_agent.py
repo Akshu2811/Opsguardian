@@ -1,4 +1,4 @@
-# agents/router_agent.py
+# agents/router_agent.py (updated: status logic ASSIGNED for P0/P1, include used_adk flags)
 import logging
 from typing import Union, Dict, Any
 
@@ -9,14 +9,13 @@ from tools.backend_client import BackendClient
 
 logger = logging.getLogger(__name__)
 
-
 class RouterAgent:
     """
     Orchestrates:
-      - read ticket (either from backend by id, or use provided dict)
-      - classify via ADK
+      - read ticket
+      - classify via ADK (or heuristic)
       - update ticket on backend
-      - generate suggestions via ADK
+      - generate suggestions via ADK (or heuristic)
       - send suggestions to backend
     """
 
@@ -32,58 +31,63 @@ class RouterAgent:
             return ticket_or_id
         raise TypeError("ticket_or_id must be int or dict")
 
-    # agents/router_agent.py  (replace only the process_ticket method)
     def process_ticket(self, ticket_or_id: Union[int, Dict[str, Any]]):
-        logger.info("RouterAgent processing ticket id=%s", ticket_or_id if isinstance(ticket_or_id, int) else ticket_or_id.get("id"))
+        ticket_id = ticket_or_id if isinstance(ticket_or_id, int) else ticket_or_id.get("id")
+        logger.info("RouterAgent processing ticket id=%s", ticket_id)
 
-        # 1) Ensure we have a ticket dict (call backend if caller only provided id)
         raw_ticket = self._ensure_ticket(ticket_or_id)
-
-        # 2) Normalize / Read
-        logger.info("ReaderAgent reading ticket id=%s", raw_ticket.get("id"))
         normalized = self.reader.read(raw_ticket)
 
-        # 3) Classify with ADK
-        logger.info("ClassifierAgent classifying with ADK")
+        # Classification (may use ADK or heuristic). classifier returns used_adk flag.
+        logger.info("ClassifierAgent classifying ticket id=%s", normalized.get("id"))
         classification = classify_with_adk(normalized)
+        used_adk_classification = bool(classification.get("used_adk"))
 
-        # 4) Update ticket on backend (only fields we want to change)
-        # Decide new status: if ticket already RESOLVED/CLOSED -> keep; otherwise mark TRIAGED (or ASSIGNED if you prefer)
+        # Determine new status based on priority (ASSIGNED for P0/P1; TRIAGED otherwise)
         current_status = (normalized.get("status") or "").upper()
         if current_status in ("RESOLVED", "CLOSED"):
             new_status = current_status
         else:
-            # set TRIAGED by default; change to "ASSIGNED" if you'd rather auto-assign
-            new_status = "TRIAGED"
+            pr = (classification.get("priority") or "").upper()
+            if pr in ("P0", "P1"):
+                new_status = "ASSIGNED"
+            else:
+                new_status = "TRIAGED"
 
         update_payload = {
             "priority": classification.get("priority"),
             "category": classification.get("category"),
             "status": new_status
         }
-        ticket_id = normalized.get("id")
-        logger.info("ResolverAgent updating ticket=%s with %s", ticket_id, update_payload)
-        resolver_update = self.backend.update_ticket(ticket_id, update_payload)
+        logger.info("Updating ticket id=%s with %s", normalized.get("id"), update_payload)
+        resolver_update = self.backend.update_ticket(normalized.get("id"), update_payload)
 
-        # 5) Generate suggestions via ADK
-        logger.info("SuggesterAgent generating suggestions via ADK")
-        suggestions_list = suggest_with_adk(normalized)
+        # Generate suggestions
+        logger.info("Generating suggestions for ticket id=%s", normalized.get("id"))
+        suggester_result = suggest_with_adk(normalized)
+        suggestions_list = suggester_result.get("suggestions") or []
+        used_adk_suggestions = bool(suggester_result.get("used_adk"))
 
-        # 6) Send suggestions to backend
-        suggestions_payload = {"id": ticket_id, "suggestions": suggestions_list}
+        # Send suggestions to backend
+        suggestions_payload = {"id": normalized.get("id"), "suggestions": suggestions_list}
         backend_response = None
         try:
-            backend_response = self.backend.add_suggestions(ticket_id, suggestions_payload)
-        except AttributeError:
-            logger.info("BackendClient.add_suggestions missing — falling back to POST /tickets/{id}/suggestions")
-            url = f"/tickets/{ticket_id}/suggestions"
-            backend_response = self.backend.post_at_path(url, suggestions_payload) if hasattr(self.backend, "post_at_path") else {"status": "not_sent"}
+            backend_response = self.backend.add_suggestions(normalized.get("id"), suggestions_payload)
+        except Exception:
+            logger.info("Fallback: POSTing to /tickets/{id}/suggestions")
+            url = f"/tickets/{normalized.get('id')}/suggestions"
+            try:
+                backend_response = self.backend.post_at_path(url, suggestions_payload)
+            except Exception as e:
+                logger.warning("Failed to POST suggestions to backend: %s", e)
+                backend_response = {"status": "failed", "error": str(e)}
 
-        # 7) Return combined result for debug
         return {
             "normalized": normalized,
             "classification": classification,
+            "used_adk_classification": used_adk_classification,
             "resolver_update": resolver_update,
             "suggestions": suggestions_payload,
+            "used_adk_suggestions": used_adk_suggestions,
             "backend_response": backend_response
         }

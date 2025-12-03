@@ -5,6 +5,7 @@ import com.opsguardian.backend.repository.TicketRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -48,5 +49,36 @@ public class TicketService {
                 })
                 .orElse(null);
     }
+
+    /**
+     * Add suggestions to a ticket by appending them to existing suggestions.
+     * Duplicates (exact string matches) are filtered out.
+     * Returns the updated ticket, or null if not found.
+     */
+    public Ticket addSuggestions(Long id, List<String> suggestions) {
+        return repo.findById(id)
+                .map(t -> {
+                    if (t.getSuggestions() == null) {
+                        t.setSuggestions(new ArrayList<>());
+                    }
+                    // append but avoid exact duplicates
+                    for (String s : suggestions) {
+                        if (s == null) continue;
+                        String trimmed = s.trim();
+                        if (trimmed.isEmpty()) continue;
+                        if (!t.getSuggestions().contains(trimmed)) {
+                            t.getSuggestions().add(trimmed);
+                        }
+                    }
+
+                    // Optionally mark as ASSIGNED if not already
+                    if (!"ASSIGNED".equalsIgnoreCase(t.getStatus())) {
+                        t.setStatus("ASSIGNED");
+                    }
+                    return repo.save(t);
+                })
+                .orElse(null);
+    }
+
 
 }

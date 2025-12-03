@@ -1,9 +1,8 @@
-# agents/adk_suggester.py
+# agents/adk_suggester.py (updated: returns used_adk flag and uses retries)
 import logging
 from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
-
 
 def _heuristic_suggestions() -> List[str]:
     return [
@@ -12,32 +11,30 @@ def _heuristic_suggestions() -> List[str]:
         "Check upstream/downstream dependency availability (DB, third-party APIs)."
     ]
 
-
-def suggest_with_adk(normalized_ticket: Dict[str, Any]) -> List[str]:
+def suggest_with_adk(normalized_ticket: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Public function expected by router_agent.
-    Tries ADK via run_agent_sync; falls back to safe heuristics list.
+    Returns dict: {'suggestions': [...], 'used_adk': True|False}
     """
     title = normalized_ticket.get("title", "") or ""
     description = normalized_ticket.get("description", "") or ""
 
     try:
-        from agents.adk_runtime import run_agent_sync  # local import to avoid cycles
-        from agents.adk_utils import extract_suggestions_from_adk_response  # local import
+        from agents.adk_runtime import run_agent_sync_with_retries
+        from agents.adk_utils import extract_suggestions_from_adk_response
         prompt = (
             f"Generate 3-6 short, actionable troubleshooting suggestions for this issue.\n"
             f"Title: {title}\n"
             f"Description: {description}\n"
             f"Return ONLY a JSON array: [\"...\"]"
         )
-        logger.debug("Calling ADK runner for suggestions")
-        raw = run_agent_sync("adk_llm_agent", prompt)
+        logger.debug("Calling ADK runner for suggestions (with retries)")
+        raw = run_agent_sync_with_retries("adk_llm_agent", prompt)
         logger.debug("ADK raw suggester response: %r", raw)
         try:
             suggestions = extract_suggestions_from_adk_response(raw)
             if suggestions:
                 logger.info("ADK returned %d suggestions", len(suggestions))
-                return suggestions
+                return {"suggestions": suggestions, "used_adk": True}
         except Exception:
             logger.debug("extract_suggestions_from_adk_response failed", exc_info=False)
     except Exception as e:
@@ -45,7 +42,6 @@ def suggest_with_adk(normalized_ticket: Dict[str, Any]) -> List[str]:
 
     # fallback
     logger.info("Returning heuristic suggestions")
-    return _heuristic_suggestions()
-
+    return {"suggestions": _heuristic_suggestions(), "used_adk": False}
 
 __all__ = ["suggest_with_adk"]
