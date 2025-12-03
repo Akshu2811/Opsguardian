@@ -8,31 +8,34 @@ import org.springframework.web.bind.annotation.*;
 import java.time.Instant;
 import java.util.*;
 
-@RestController
-@RequestMapping("/api/tickets")
+@RestController // Marks this as a REST controller exposing JSON APIs
+@RequestMapping("/api/tickets") // Base path for all ticket-related endpoints
 public class TicketController {
 
-    private final TicketService service;
+    private final TicketService service; // Ticket service layer for business logic
 
     public TicketController(TicketService service) {
         this.service = service;
     }
 
     @GetMapping
+    // Returns a list of tickets, with optional search filtering
     public ResponseEntity<List<Ticket>> list(@RequestParam(required = false) String query) {
         List<Ticket> tickets = service.search(query);
         return ResponseEntity.ok(tickets);
     }
 
     @PostMapping
+    // Creates a new ticket with defaults for ID, createdAt, and status
     public ResponseEntity<Ticket> create(@RequestBody Ticket ticket) {
-        // Defensive: ensure we never try to persist a Ticket with an explicit id
-        ticket.setId(null);
+        ticket.setId(null); // Prevent client from injecting ID
 
-        // Ensure createdAt and status defaults for new tickets
+        // Set creation timestamp if missing
         if (ticket.getCreatedAt() == null) {
             ticket.setCreatedAt(Instant.now());
         }
+
+        // Default ticket status
         if (ticket.getStatus() == null) {
             ticket.setStatus("OPEN");
         }
@@ -42,6 +45,7 @@ public class TicketController {
     }
 
     @GetMapping("/{id}")
+    // Retrieves a specific ticket by ID, or 404 if not found
     public ResponseEntity<Ticket> get(@PathVariable Long id) {
         return service.get(id)
                 .map(ResponseEntity::ok)
@@ -49,46 +53,51 @@ public class TicketController {
     }
 
     /**
-     * Accepts suggestions from the agent and persists them to the ticket.
+     * Adds suggestions received from the agent for a given ticket.
      *
-     * Accepts either:
-     *  - a JSON array: ["s1", "s2"]
-     *  - or an object: {"suggestions": ["s1","s2"], ...}
-     *
-     * Returns the updated Ticket in the response.
+     * Supports both JSON array and JSON object payloads.
+     * Returns the updated ticket with suggestions included.
      */
     @PostMapping("/{id}/suggestions")
     public ResponseEntity<?> addSuggestions(@PathVariable Long id, @RequestBody Object payload) {
         List<String> suggestions = new ArrayList<>();
 
-        // payload can be ArrayList (when JSON array is posted) or LinkedHashMap (when object posted)
+        // Handle case where payload is a plain JSON array
         if (payload instanceof List) {
             for (Object o : (List<?>) payload) {
                 if (o != null) suggestions.add(String.valueOf(o));
             }
-        } else if (payload instanceof Map) {
+        }
+        // Handle case where payload is JSON object
+        else if (payload instanceof Map) {
             Map<?, ?> map = (Map<?, ?>) payload;
+
             Object maybeList = map.get("suggestions");
+            // Extract array from "suggestions" key
             if (maybeList instanceof List) {
                 for (Object o : (List<?>) maybeList) {
                     if (o != null) suggestions.add(String.valueOf(o));
                 }
             } else {
-                // fallback: if map contains string values under different keys,
-                // try to collect them (defensive)
+                // Fallback for single suggestion key
                 Object single = map.get("suggestion");
                 if (single != null) suggestions.add(String.valueOf(single));
             }
-        } else {
-            // last-resort: string payload mapping — try to coerce
+        }
+        // Fallback: try to coerce any primitive/string payload
+        else {
             suggestions.add(String.valueOf(payload));
         }
 
+        // Reject invalid payloads
         if (suggestions.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("status", "error", "reason", "no suggestions found in payload"));
+            return ResponseEntity.badRequest()
+                    .body(Map.of("status", "error", "reason", "no suggestions found in payload"));
         }
 
         Ticket updated = service.addSuggestions(id, suggestions);
+
+        // Ticket not found
         if (updated == null) {
             return ResponseEntity.notFound().build();
         }
@@ -96,15 +105,15 @@ public class TicketController {
         return ResponseEntity.ok(Map.of("status", "ok", "ticket", updated));
     }
 
-    // placeholder: apply a suggestion (simulate)
     @PostMapping("/{id}/apply-suggestion")
+    // Placeholder endpoint for applying suggestions—currently logs and returns success
     public ResponseEntity<?> applySuggestion(@PathVariable Long id, @RequestBody Map<String, Object> req) {
         System.out.println("Apply suggestion for ticket " + id + ": " + req);
         return ResponseEntity.ok(Map.of("status", "applied"));
     }
 
-    // assign ticket to team
     @PostMapping("/{id}/assign")
+    // Assigns a ticket to a specific team and updates its status
     public ResponseEntity<?> assign(@PathVariable Long id, @RequestBody Map<String, Object> assignment) {
         service.get(id).ifPresent(t -> {
             Object team = assignment.get("team");
@@ -116,6 +125,7 @@ public class TicketController {
     }
 
     @PutMapping("/{id}")
+    // Partially updates a ticket's priority, category, or status fields
     public ResponseEntity<Ticket> update(
             @PathVariable Long id,
             @RequestBody Map<String, Object> changes

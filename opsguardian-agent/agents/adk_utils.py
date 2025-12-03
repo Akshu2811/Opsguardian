@@ -1,4 +1,3 @@
-# agents/adk_utils.py
 import json
 import logging
 import re
@@ -6,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# Regex helpers
+# Regex helpers used to locate JSON objects/arrays and common wrapper patterns
 _JSON_OBJ_RE = re.compile(r'\{[\s\S]*?\}', re.MULTILINE)
 _JSON_ARR_RE = re.compile(r'\[[\s\S]*?\]', re.MULTILINE)
 CODE_FENCE_RE = re.compile(r'```(?:json)?\s*(.*?)```', re.DOTALL)
@@ -14,20 +13,31 @@ TEXT_WRAPPER_RE = re.compile(r'text\s*=\s*("""|\'\'\')?(.*?)(\1)?$', re.DOTALL)
 LEADING_TRIPLE_QUOTE_RE = re.compile(r'^("""|\'\'\')')
 TRAILING_TRIPLE_QUOTE_RE = re.compile(r'("""|\'\'\')$')
 
+# ---------------------------------------------------------------------
+# Low-level coercion & cleaning utilities
+# ---------------------------------------------------------------------
 def _coerce_to_str(obj: Any) -> str:
-    """Try multiple routes to extract text from the ADK response object."""
+    """
+    Convert a variety of ADK runner event shapes into a single string.
+
+    Strategy:
+      - Return early for None and plain strings.
+      - Inspect dicts for common text-like keys (text, content, output, message, result).
+      - If dict contains lists under 'candidates' or 'items', recurse and join parts.
+      - If no textual key is found, fall back to json.dumps(obj) for debugging or str(obj).
+      - For lists/tuples, recurse and join elements with newlines.
+    This function centralizes tolerance for many ADK event shapes.
+    """
     if obj is None:
         return ""
-    # If already a string
     if isinstance(obj, str):
         return obj
-    # If raw ADK runner event object with 'text' or 'content' keys
     if isinstance(obj, dict):
         # common fields to check
         for key in ("text", "content", "output", "message", "result"):
             if key in obj and isinstance(obj[key], str):
                 return obj[key]
-        # some ADK responses include candidates / parts lists
+        # Handle lists of candidate responses
         if "candidates" in obj and isinstance(obj["candidates"], list):
             parts = []
             for cand in obj["candidates"]:
@@ -38,21 +48,30 @@ def _coerce_to_str(obj: Any) -> str:
             for it in obj["items"]:
                 parts.append(_coerce_to_str(it))
             return "\n".join(p for p in parts if p)
-        # as a last resort try JSON dump (useful for debugging)
+        # As a last resort try JSON dump (useful for debugging)
         try:
             return json.dumps(obj)
         except Exception:
             return str(obj)
-    # If it's a list, join elements
     if isinstance(obj, (list, tuple)):
         parts = []
         for el in obj:
             parts.append(_coerce_to_str(el))
         return "\n".join(p for p in parts if p)
-    # fallback
+    # fallback to generic string conversion
     return str(obj)
 
 def _strip_code_fence_and_wrappers(text: str) -> str:
+    """
+    Remove common wrappers around ADK textual output:
+
+      - Extract content inside first ``` ``` code fence if present.
+      - Remove "text = '''...'''" style wrappers.
+      - Strip leading/trailing triple quotes.
+      - Trim whitespace.
+
+    This helps normalize outputs where the LLM returned code blocks or quoted JSON.
+    """
     if not text:
         return ""
     original = text
@@ -68,24 +87,34 @@ def _strip_code_fence_and_wrappers(text: str) -> str:
     # Strip leading/trailing triple quotes if present
     text = LEADING_TRIPLE_QUOTE_RE.sub("", text)
     text = TRAILING_TRIPLE_QUOTE_RE.sub("", text)
-    # Trim
+    # Trim whitespace
     text = text.strip()
     if original != text:
         logger.debug("Stripped wrapper/code-fence. Before (truncated): %s\nAfter (truncated): %s",
                      original[:200].replace("\n", "\\n"), text[:200].replace("\n", "\\n"))
     return text
 
+# ---------------------------------------------------------------------
+# Public extraction helpers
+# ---------------------------------------------------------------------
 def extract_text_from_adk_response(events: Any) -> str:
     """
     Universal extractor that accepts whatever the ADK runner returned (string, dict, list).
-    Returns a cleaned string (code fences and text wrappers removed).
+    Returns a cleaned string with code fences and text wrappers removed.
     """
     text = _coerce_to_str(events)
     text = _strip_code_fence_and_wrappers(text)
     return text
 
 def _find_json_in_text(text: str) -> Optional[str]:
-    """Try to find a JSON object or array embedded in the text using regex heuristics."""
+    """
+    Heuristically locate an embedded JSON array or object inside noisy text.
+
+    Preference order:
+      1. JSON array (useful for suggestion lists)
+      2. JSON object (useful for classification outputs)
+    Returns the matched substring or None.
+    """
     if not text:
         return None
     # Try array first (suggestions)
@@ -104,8 +133,13 @@ def _find_json_in_text(text: str) -> Optional[str]:
 
 def parse_classification_output(raw: Any) -> Optional[Dict[str, str]]:
     """
-    Given an ADK raw response (events/dict/string), attempt to extract {"priority": "...", "category": "..."}.
-    Returns None if parsing fails.
+    Attempt to extract {"priority": "...", "category": "..."} from raw ADK output.
+
+    Steps:
+      - Normalize raw input to text and try json.loads if the whole text is JSON.
+      - Search for embedded JSON and parse it.
+      - Fallback to regex heuristics to find priority tokens (P0..P3) and common category words.
+    Returns None when unable to infer a reliable classification.
     """
     try:
         text = extract_text_from_adk_response(raw)
@@ -134,9 +168,12 @@ def parse_classification_output(raw: Any) -> Optional[Dict[str, str]]:
             except Exception:
                 logger.debug("Failed to json.loads embedded JSON candidate", exc_info=True)
 
-        # Heuristic fallback: look for "P0"/"P1"/"P2"/"P3" and capitalized category words
+        # Heuristic fallback: look for priority tokens and a known category word
         priority_match = re.search(r'\b(P0|P1|P2|P3)\b', text, re.IGNORECASE)
-        category_match = re.search(r'\b(Database|Network|Application|Access|Security|Payments|Performance|Other|General)\b', text, re.IGNORECASE)
+        category_match = re.search(
+            r'\b(Database|Network|Application|Access|Security|Payments|Performance|Other|General)\b',
+            text, re.IGNORECASE
+        )
         if priority_match or category_match:
             return {
                 "priority": priority_match.group(1).upper() if priority_match else None,
@@ -149,9 +186,16 @@ def parse_classification_output(raw: Any) -> Optional[Dict[str, str]]:
 
 def extract_suggestions_from_adk_response(raw: Any) -> List[str]:
     """
-    Attempt to pull a JSON-array of suggestions from the ADK output.
-    Fallback to line-based heuristics if JSON array isn't present.
-    Always returns a list (may be empty).
+    Attempt to extract a JSON-array of suggestions from ADK output.
+
+    Strategy:
+      1. If whole text is a JSON array, parse and return stringified entries.
+      2. Look for an embedded JSON array and parse it.
+      3. As a fallback, split text into lines and apply heuristics:
+         - remove numbering/bullets
+         - ignore very short lines and headings
+         - preserve order and deduplicate
+      Always returns a list (may be empty).
     """
     out: List[str] = []
     try:
@@ -210,9 +254,19 @@ def extract_suggestions_from_adk_response(raw: Any) -> List[str]:
     logger.warning("Could not extract suggestions cleanly.")
     return out
 
-# Expose a small helper used by older code that might expect a JSON-ish string wrapped in backticks
+# ---------------------------------------------------------------------
+# Misc helpers
+# ---------------------------------------------------------------------
 def sanitize_json_like_text(s: str) -> str:
-    """Remove stray quotes/backticks and return trimmed string."""
+    """
+    Remove stray wrappers like code fences, triple quotes, or surrounding single backticks/quotes,
+    and return a trimmed string suitable for JSON parsing or display.
+
+    Behavior:
+      - Uses the shared _strip_code_fence_and_wrappers to remove the most common wrappers.
+      - Strips surrounding single backticks.
+      - If the remaining string is quoted and inner content looks like JSON, return inner content.
+    """
     if not s:
         return ""
     s = s.strip()
