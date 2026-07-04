@@ -7,6 +7,10 @@ OpsGuardian analyzes raw incident descriptions, assigns priority, classifies cat
 
 ---
 
+**Demo Video:** https://drive.google.com/file/d/1ePE4vtzLKxXHL9Up1IQn9rm7USbvEToq/view?usp=sharing
+
+---
+
 ## **Key Features**
 
 * **AI-powered classification** of category and priority
